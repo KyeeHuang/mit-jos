@@ -6,6 +6,15 @@
 # error "This is a JOS kernel header; user programs should not #include it"
 #endif
 
+#ifndef PSE_SUPPORT
+#define PSE_SUPPORT
+#endif
+#ifdef PSE_SUPPORT
+#define KPGSIZE (LPGSIZE)
+#else
+#define KPGSIZE (PGSIZE)
+#endif
+
 #include <inc/memlayout.h>
 #include <inc/assert.h>
 
@@ -54,6 +63,9 @@ void	mem_init(void);
 
 void	page_init(void);
 struct PageInfo *page_alloc(int alloc_flags);
+#ifdef PSE_SUPPORT
+	struct PageInfo *large_page_alloc(int alloc_flags);
+#endif
 void	page_free(struct PageInfo *pp);
 int	page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm);
 void	page_remove(pde_t *pgdir, void *va);

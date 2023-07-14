@@ -61,6 +61,10 @@ i386_detect_memory(void)
 // Set up memory mappings above UTOP.
 // --------------------------------------------------------------
 
+static void set_alloc_pageinfo(int i_start, int i_end);
+#ifdef PSE_SUPPORT
+	static void boot_map_large_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm);
+#endif
 static void boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm);
 static void check_page_free_list(bool only_low_memory);
 static void check_page_alloc(void);
@@ -206,11 +210,20 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
+	#ifdef PSE_SUPPORT
+	uintptr_t KERNSIZE = ROUNDUP((~KERNBASE)+1, LPGSIZE);
+	boot_map_large_region(	kern_pgdir,
+							KERNBASE,
+							KERNSIZE,
+							0,
+							(PTE_P | PTE_W));
+	#else
 	boot_map_region(kern_pgdir,
 					KERNBASE,
 					0xFFFFFFFF - KERNBASE,
 					0,
 					(PTE_P | PTE_W));
+	#endif
 
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
@@ -222,6 +235,10 @@ mem_init(void)
 	//
 	// If the machine reboots at this point, you've probably set up your
 	// kern_pgdir wrong.
+	#ifdef PSE_SUPPORT
+		lcr4(rcr4() | CR4_PSE);
+	#endif
+
 	lcr3(PADDR(kern_pgdir));
 
 	check_page_free_list(0);
@@ -270,6 +287,7 @@ page_init(void)
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
 	pages[0].pp_ref = 1;
+	pages[0].pp_link = NULL;
 
 	size_t i;
 	for (i = 1; i < npages_basemem; i++) {
@@ -282,9 +300,10 @@ page_init(void)
 		pages[i].pp_ref = 1;
 	}
 	
-	physaddr_t first_page_addr = PADDR(boot_alloc(0));
+	physaddr_t first_page_addr = ROUNDUP(PADDR(boot_alloc(0)), KPGSIZE);
 	for (; i < first_page_addr/PGSIZE; i++) {
 		pages[i].pp_ref = 1;
+		pages[i].pp_link = NULL;
 	}
 
 	for (; i < npages; i++) {
@@ -576,6 +595,77 @@ tlb_invalidate(pde_t *pgdir, void *va)
 	invlpg(va);
 }
 
+// Challenges
+#ifdef PSE_SUPPORT
+struct PageInfo*
+large_page_alloc(int alloc_flags) {
+	if (!page_free_list)
+		return NULL;
+
+	// start: start of pp continuous pages to be allocated.
+	// current: track pp pointer.
+	// end: end of pages
+	// jmp: pp whose pp_link is "start"
+	struct PageInfo *start, *current, *end, *jmp;
+	jmp = start = current = page_free_list;
+	end = pages + npages;
+
+	int cnt;
+
+	while (current < end) {
+		cnt = 0;
+		// stop when at least one conditions met:
+		// 1. array overflow (current >= end)
+		// 2. pages allocated is broken by an already occupied page
+		// 3. page count reaches NPTENTRIES
+		while (current < end && current->pp_link && cnt < NPTENTRIES) {
+			current++;
+			cnt++;
+		}
+
+		// when while loop is broken for adequate pages
+		// deal with pointer update and return
+		if (cnt == NPTENTRIES) {
+
+			// this implies the continous page we found
+			// start just at first free page, so no front
+			// point need to be updated, just update page_free_list
+			if (jmp == page_free_list) 
+				page_free_list = (current - 1)->pp_link;
+			
+			// This maybe the most case, we don't update the page_free_list
+			// but the one previously points to our found area, 
+			// and set it point to next free page
+			else
+				jmp->pp_link = (current - 1)->pp_link;
+		
+			for (end=start; end < current; end++) {
+				end->pp_link = NULL;
+			}
+
+			return start;
+		} else if (current < end) {
+
+			// pp just before "current" is the one points to the new "start" found below
+			jmp = current - 1;
+
+			while (!(current->pp_link) && current < end)
+				current++;
+			
+			start = current;
+		}
+	}
+
+	return NULL;
+}
+
+static void
+boot_map_large_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) {
+	int n;
+	for (n = 0; n < size; n += LPGSIZE)
+		pgdir[PDX(va+n)] = (pde_t)((pa+n) | perm | PTE_P | PTE_PS);
+}
+#endif
 
 // --------------------------------------------------------------
 // Checking functions.
@@ -743,7 +833,7 @@ check_kern_pgdir(void)
 
 
 	// check phys mem
-	for (i = 0; i < npages * PGSIZE; i += PGSIZE)
+	for (i = 0; i < npages * PGSIZE; i += KPGSIZE)
 		assert(check_va2pa(pgdir, KERNBASE + i) == i);
 
 	// check kernel stack
@@ -784,10 +874,21 @@ check_va2pa(pde_t *pgdir, uintptr_t va)
 	pgdir = &pgdir[PDX(va)];
 	if (!(*pgdir & PTE_P))
 		return ~0;
+		
+#ifdef PSE_SUPPORT
+	if (!(*pgdir & PTE_PS)) {
+		p = (pte_t *) KADDR(PTE_ADDR(*pgdir));
+		if (!(p[PTX(va)] & PTE_P))
+			return ~0;
+		return PTE_ADDR(p[PTX(va)]);
+	} else 
+		return PTE_ADDR(*pgdir);
+#else
 	p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
 	if (!(p[PTX(va)] & PTE_P))
 		return ~0;
 	return PTE_ADDR(p[PTX(va)]);
+#endif
 }
 
 
