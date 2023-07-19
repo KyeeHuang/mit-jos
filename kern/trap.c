@@ -190,10 +190,24 @@ trap_dispatch(struct Trapframe *tf)
 {
 	// Handle processor exceptions.
 	// LAB 3: Your code here.
-	// switch (tf->tf_trapno) {
-	// 	case T_PGFLT: page_fault_handler(tf);
-	// 	default: break;
-	// }
+	int syscall_ret = 0;
+	switch (tf->tf_trapno) {
+		case T_PGFLT: 	if ((tf->tf_cs & 0x3) == 0)
+							panic("Page fault in kernel code, halt");
+					  	page_fault_handler(tf);
+						return;
+		case T_BRKPT: 	monitor(tf);
+					  	return;
+		case T_SYSCALL: syscall_ret = syscall(	tf->tf_regs.reg_eax,
+												tf->tf_regs.reg_edx,
+												tf->tf_regs.reg_ecx,
+												tf->tf_regs.reg_ebx,
+												tf->tf_regs.reg_edi,
+												tf->tf_regs.reg_esi);
+						tf->tf_regs.reg_eax = syscall_ret;
+						return;
+		default: break;
+	}
 
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
@@ -235,6 +249,7 @@ trap(struct Trapframe *tf)
 	// Record that tf is the last real trapframe so
 	// print_trapframe can print some additional information.
 	last_tf = tf;
+	print_trapframe(tf);
 
 	// Dispatch based on what type of trap occurred
 	trap_dispatch(tf);
