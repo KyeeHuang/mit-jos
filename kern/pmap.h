@@ -6,8 +6,7 @@
 # error "This is a JOS kernel header; user programs should not #include it"
 #endif
 
-#ifndef PSE_SUPPORT
-#define PSE_SUPPORT
+#ifndef PSE_SUPPORT // PSE_SUPPORT has bugs!
 #endif
 #ifdef PSE_SUPPORT
 #define KPGSIZE (LPGSIZE)

@@ -5,6 +5,7 @@
 #include <inc/error.h>
 #include <inc/string.h>
 #include <inc/assert.h>
+#include <inc/log.h>
 
 #include <kern/pmap.h>
 #include <kern/kclock.h>
@@ -167,6 +168,8 @@ mem_init(void)
 	envs = (struct Env *) boot_alloc(NENV * sizeof(struct Env));
 	memset(envs, 0, NENV * sizeof(struct Env));
 
+	cprintf("start page init\n");
+
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
 	// up the list of free physical pages. Once we've done so, all further
@@ -302,7 +305,14 @@ mem_init_mp(void)
 	//     Permissions: kernel RW, user NONE
 	//
 	// LAB 4: Your code here:
-
+	for (size_t i = 0; i < NCPU; ++i) {
+		size_t kstacktop_i = KSTACKTOP - i * (KSTKSIZE + KSTKGAP);
+		boot_map_region(kern_pgdir,
+						kstacktop_i - KSTKSIZE,
+						KSTKSIZE,
+						PADDR(percpu_kstacks[i]),
+						PTE_W);
+	}
 }
 
 // --------------------------------------------------------------
@@ -317,6 +327,8 @@ mem_init_mp(void)
 // allocator functions below to allocate and deallocate physical
 // memory via the page_free_list.
 //
+
+
 void
 page_init(void)
 {
@@ -344,8 +356,14 @@ page_init(void)
 	pages[0].pp_ref = 1;
 	pages[0].pp_link = NULL;
 
+	pages[MPENTRY_PADDR / PGSIZE].pp_ref = 1;
+	pages[MPENTRY_PADDR / PGSIZE].pp_link = NULL;
+
 	size_t i;
 	for (i = 1; i < npages_basemem; i++) {
+		if (i == MPENTRY_PADDR / PGSIZE) {
+			continue;
+		}
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = page_free_list;
 		page_free_list = &pages[i];
@@ -361,11 +379,18 @@ page_init(void)
 		pages[i].pp_link = NULL;
 	}
 
+	pages[MPENTRY_PADDR / PGSIZE].pp_ref = 1;
+	pages[MPENTRY_PADDR / PGSIZE].pp_link = NULL;
+
 	for (; i < npages; i++) {
+		if (i == MPENTRY_PADDR / PGSIZE) {
+			continue;
+		}
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = page_free_list;
 		page_free_list = &pages[i];
 	}
+
 }
 
 //
@@ -690,7 +715,23 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+	void *ret = (void *) base;
+	size = ROUNDUP(size, PGSIZE);
+
+	if ((base + size) > MMIOLIM) 
+		panic("mmio map out of limit\n");
+
+	boot_map_region(kern_pgdir,
+					base,
+					size,
+					pa,
+					(PTE_W | PTE_PCD | PTE_PWT));
+
+	base += size;
+
+	return ret;
+
+	// panic("mmio_map_region not implemented");
 }
 
 static uintptr_t user_mem_check_addr;
