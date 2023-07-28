@@ -277,6 +277,9 @@ region_alloc(struct Env *e, void *va, size_t len)
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
 
+
+	// Error Code phase in lab3, va and va+len should be round up/down to PGSIZE
+	/*
 	struct PageInfo *pp;
 	
 	int pgs = len / PGSIZE;
@@ -291,6 +294,22 @@ region_alloc(struct Env *e, void *va, size_t len)
 		}
 		page_insert(e->env_pgdir, pp, (void *) va, PTE_P | PTE_U | PTE_W);
 		va += PGSIZE;
+	}
+	*/
+
+	struct PageInfo *pp;
+	uint32_t va_start = ROUNDDOWN((uint32_t) va, PGSIZE);
+	uint32_t va_end = ROUNDUP((uint32_t) va+len, PGSIZE);
+
+	int i;
+	
+	for (i = va_start; i < va_end; i += PGSIZE) {
+		pp = (struct PageInfo *) page_alloc(0);
+		if (!pp) {
+			int r = -E_NO_MEM;
+			panic("region_alloc %e\n", r);
+		}  
+		page_insert(e->env_pgdir, pp, (void *) i, (PTE_U | PTE_W | PTE_P));
 	}
 }
 
