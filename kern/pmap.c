@@ -353,44 +353,92 @@ page_init(void)
 	// Change the code to reflect this.
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
-	pages[0].pp_ref = 1;
-	pages[0].pp_link = NULL;
+	// pages[0].pp_ref = 1;
+	// pages[0].pp_link = NULL;
 
-	pages[MPENTRY_PADDR / PGSIZE].pp_ref = 1;
-	pages[MPENTRY_PADDR / PGSIZE].pp_link = NULL;
+	// pages[MPENTRY_PADDR / PGSIZE].pp_ref = 1;
+	// pages[MPENTRY_PADDR / PGSIZE].pp_link = NULL;
 
-	size_t i;
-	for (i = 1; i < npages_basemem; i++) {
-		if (i == MPENTRY_PADDR / PGSIZE) {
-			continue;
-		}
-		pages[i].pp_ref = 0;
-		pages[i].pp_link = page_free_list;
-		page_free_list = &pages[i];
-	}
+	// size_t i;
+	// for (i = 1; i < MPENTRY_PADDR/PGSIZE; i++) {
+	// 	pages[i].pp_ref = 0;
+	// 	pages[i].pp_link = page_free_list;
+	// 	page_free_list = &pages[i];
+	// }
+	// extern unsigned char mpentry_start[], mpentry_end[];
+	// size_t size = mpentry_end - mpentry_start;
+	// size = ROUNDUP(size, PGSIZE);
+	// for (; i < (MPENTRY_PADDR+size)/PGSIZE; i++) {
+	// 	pages[i].pp_ref = 1;
+	// }
 
-	for (; i < EXTPHYSMEM/PGSIZE; i++) {
-		pages[i].pp_ref = 1;
-	}
+	// for (; i < npages_basemem; i++) {
+	// 	pages[i].pp_ref = 0;
+	// 	pages[i].pp_link = page_free_list;
+	// 	page_free_list = &pages[i];
+	// }
+
+	// for (; i < EXTPHYSMEM/PGSIZE; i++) {
+	// 	pages[i].pp_ref = 1;
+	// }
 	
-	physaddr_t first_page_addr = ROUNDUP(PADDR(boot_alloc(0)), KPGSIZE);
-	for (; i < first_page_addr/PGSIZE; i++) {
-		pages[i].pp_ref = 1;
-		pages[i].pp_link = NULL;
-	}
+	// physaddr_t first_page_addr = ROUNDUP(PADDR(boot_alloc(0)), KPGSIZE);
+	// for (; i < first_page_addr/PGSIZE; i++) {
+	// 	pages[i].pp_ref = 1;
+	// 	pages[i].pp_link = NULL;
+	// }
 
-	pages[MPENTRY_PADDR / PGSIZE].pp_ref = 1;
-	pages[MPENTRY_PADDR / PGSIZE].pp_link = NULL;
+	// pages[MPENTRY_PADDR / PGSIZE].pp_ref = 1;
+	// pages[MPENTRY_PADDR / PGSIZE].pp_link = NULL;
 
-	for (; i < npages; i++) {
-		if (i == MPENTRY_PADDR / PGSIZE) {
-			continue;
-		}
-		pages[i].pp_ref = 0;
-		pages[i].pp_link = page_free_list;
-		page_free_list = &pages[i];
-	}
+	// for (; i < npages; i++) {
+	// 	if (i == MPENTRY_PADDR / PGSIZE) {
+	// 		continue;
+	// 	}
+	// 	pages[i].pp_ref = 0;
+	// 	pages[i].pp_link = page_free_list;
+	// 	page_free_list = &pages[i];
+	// }
+	
+#define MARK_FREE(_i) do {\
+    size_t __tmp__ = _i;\
+    pages[__tmp__].pp_ref = 0;\
+    pages[__tmp__].pp_link = page_free_list;\
+	page_free_list = &pages[__tmp__];\
+} while(0)
+#define MARK_USE(_i) do {\
+    size_t __tmp__ = _i;\
+    pages[__tmp__].pp_ref = 0;\
+    pages[__tmp__].pp_link = NULL;\
+} while(0)
 
+    extern char end[];
+    physaddr_t bss_end;
+    physaddr_t boot_alloc_end;
+	size_t i;
+
+    page_free_list = NULL;
+    bss_end = PADDR(ROUNDUP((char*)end, PGSIZE));
+    boot_alloc_end = PADDR(boot_alloc(0));
+
+    MARK_USE(0);
+    for (i = 1; i < MPENTRY_PADDR / PGSIZE; ++i)
+        MARK_FREE(i);
+    MARK_USE(i++);
+    for (; i < npages_basemem; ++i)
+        MARK_FREE(i);
+    for (; i < EXTPHYSMEM / PGSIZE; ++i)
+        MARK_USE(i);
+    for (; i < bss_end / PGSIZE; ++i)
+        MARK_USE(i);
+    for (; i < boot_alloc_end / PGSIZE; ++i)
+        MARK_USE(i);
+    for (; i < npages; ++i)
+        MARK_FREE(i);
+	log_int(npages);
+
+#undef MARK_USE
+#undef MARK_FREE
 }
 
 //

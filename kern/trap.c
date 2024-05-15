@@ -152,35 +152,19 @@ trap_init_percpu(void)
 	//
 	// LAB 4: Your code here:
 
-	// struct Taskstate *cur_ts;
-	// size_t i = cpunum();
+	struct Taskstate *ts;
+	size_t i = cpunum();
 
-	// cur_ts = &cpus[i].cpu_ts;	
-	// cur_ts->ts_esp0 = (uintptr_t) percpu_kstacks[i] + KSTKSIZE;	
-	// cur_ts->ts_ss0 = GD_KD;
-	// cur_ts->ts_iomb = sizeof(struct Taskstate);
+	ts = &cpus[i].cpu_ts;
+	ts->ts_esp0 = (uintptr_t) percpu_kstacks[i] + KSTKSIZE;
+	ts->ts_ss0 = GD_KD;
+	ts->ts_iomb = sizeof(struct Taskstate);
 
-	// gdt[(GD_TSS0 >> 3) + i] = SEG16(STS_T32A, (uint32_t) (cur_ts),
-	// 										sizeof(struct Taskstate) - 1, 0);
-	// gdt[(GD_TSS0 >> 3) + i].sd_s = 0;
-
-	// ltr(GD_TSS0 + (i << 3));
-
-	// lidt(&idt_pd);	
-
-	struct Taskstate cur_ts;
-
-	cur_ts = thiscpu->cpu_ts;
-
-	cur_ts.ts_esp0 = (uintptr_t) percpu_kstacks[thiscpu->cpu_id] + KSTKSIZE;	
-	cur_ts.ts_ss0 = GD_KD;
-	cur_ts.ts_iomb = sizeof(struct Taskstate);
-
-	gdt[(GD_TSS0 >> 3) + thiscpu->cpu_id] = SEG16(STS_T32A, (uint32_t) (&cur_ts),
-											sizeof(struct Taskstate) - 1, 0);
-	gdt[(GD_TSS0 >> 3) + thiscpu->cpu_id].sd_s = 0;
-
-	ltr(GD_TSS0 + (thiscpu->cpu_id << 3));
+	gdt[(GD_TSS0 >> 3) + i] = SEG16(STS_T32A, (uint32_t) ts,
+														sizeof(struct Taskstate) - 1, 0); 
+	gdt[(GD_TSS0 >> 3) + i].sd_s = 0;
+	
+	ltr(GD_TSS0 + (i << 3));
 
 	lidt(&idt_pd);	
 
